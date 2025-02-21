@@ -3,38 +3,63 @@ import threading
 import sys
 import os
 
-def ask_question(question, correct_answers, total_time_event):
-    """Asks a question and checks the answer. If wrong or time runs out, user loses the game."""
-    answer_event = threading.Event()
-    user_answer = None
-    start_time = time.time()
+def ask_question(question, correct_answers, attempts_left):
+    """Asks a question and checks the answer. If wrong, user loses an attempt but stays on the same question. If time runs out, all attempts are lost."""
+    while True:
+        user_answer = None
+        answer_event = threading.Event()
 
-    def get_input():
-        nonlocal user_answer
-        try:
+        def get_input():
+            nonlocal user_answer
             user_answer = input("Your answer: ").strip().lower()
             answer_event.set()
-        except EOFError:
-            pass  # Handle forced termination
+        
+        def display_timer():
+            print(f"[20 seconds to answer] Attempts left: {attempts_left}")
 
-    thread = threading.Thread(target=get_input)
-    thread.daemon = True
-    thread.start()
+        display_timer()
+        thread = threading.Thread(target=get_input)
+        thread.daemon = True
+        thread.start()
 
-    while not answer_event.is_set():
-        if total_time_event.is_set():
-            return None  # Time's up, return None to signal game over
-        time.sleep(0.1)
+        thread.join(timeout=20)  # Wait for answer, timeout after 20 seconds
+
+        if not answer_event.is_set():
+            print("\nTime's up! You lost all attempts. Game over.")
+            sys.exit(1)  # Exit the game if time runs out
+        
+        if user_answer in [ans.lower() for ans in correct_answers]:
+            return attempts_left  # Correct answer, return remaining attempts
+        else:
+            attempts_left -= 1
+            if attempts_left == 0:
+                print("Wrong answer! No attempts left. Game over.")
+                sys.exit(1)
+            print(f"Wrong answer! Attempts left: {attempts_left}")
+            # Continue the loop with the reduced attempt count
+
+def save_time_to_leaderboard(time_taken):
+    """Saves the quiz completion time to a leaderboard file and sorts it."""
+    leaderboard_file = "leaderboard.txt"
+    times = []
+
+    if os.path.exists(leaderboard_file):
+        with open(leaderboard_file, "r") as file:
+            times = [float(line.strip()) for line in file.readlines()]
     
-    elapsed_time = time.time() - start_time
+    times.append(time_taken)
+    times.sort()
 
-    if user_answer in [ans.lower() for ans in correct_answers]:
-        return elapsed_time  # Correct answer, return time taken
-    else:
-        return False  # Incorrect answer, return False
+    with open(leaderboard_file, "w") as file:
+        for t in times:
+            file.write(f"{t}\n")
+
+    print("\n🏆 Leaderboard: Fastest Completion Times 🏆")
+    for i, t in enumerate(times, 1):
+        print(f"{i}. {t:.2f} seconds")
 
 def quiz():
-    """Finland Quiz: Answer all correctly or lose the game in 60 seconds!"""
+    """Finland Quiz: Answer all correctly or lose the game!"""
     questions = [
         ("Who is the current president of Finland?", ["Alexander Stubb", "Alexander", "Stubb"]),
         ("What is the current capital city of Finland?", ["Helsinki"]),
@@ -58,39 +83,15 @@ def quiz():
         ("Where does the Finnish Santa Claus live?", ["Rovaniemi", "Tunturi", "Pohjois tunturi"]),
     ]
 
-    total_time_event = threading.Event()
-    start_total_time = time.time()
-
-    def total_timer():
-        time.sleep(150)
-        total_time_event.set()
-        print("\nTime's up! You lost the game.")
-        os._exit(1)  # Forcefully terminate the program
-
-    timer_thread = threading.Thread(target=total_timer)
-    timer_thread.daemon = True
-    timer_thread.start()
-
-    total_elapsed_time = 0
-
+    attempts = 3
+    start_time = time.time()
     for question, answers in questions:
-        print(question)
-        elapsed_time = ask_question(question, answers, total_time_event)
-        
-        if total_time_event.is_set():
-            return  # Ensure clean exit when time runs out
-        
-        if elapsed_time is None:
-            print("\nTime's up! You lost the game.")
-            return
-        elif elapsed_time is False:
-            print("Wrong answer! You lost the game.")
-            return
-        else:
-            total_elapsed_time += elapsed_time
-
-    print(f"🎉 Congratulations! You passed the Finland quiz in {total_elapsed_time:.2f} seconds! 🇫🇮")
-
+        print("\n" + question)
+        attempts = ask_question(question, answers, attempts)
+    
+    total_time = time.time() - start_time
+    print(f"\n🎉 Congratulations! You passed the Finland quiz in {total_time:.2f} seconds! 🇫🇮")
+    save_time_to_leaderboard(total_time)
 
 # Run the quiz
 if __name__ == "__main__":
